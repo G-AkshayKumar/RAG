@@ -1,0 +1,65 @@
+import os
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+from langchain_community.llms import Ollama
+#from langchain_ollama import OllamaLLM
+
+
+def load_faiss_index(index_path, embedding_model):
+    embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
+    vector_store = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+    return vector_store
+
+
+def create_rag_system(index_path, embedding_model='sentence-transformers/all-MiniLM-L6-v2', model_name="llama3.1"):
+    vector_store = load_faiss_index(index_path, embedding_model)
+
+    llm = Ollama(model=model_name)
+
+    prompt_template = """
+    You are an expert assistant with access to the following context extracted from documents. Your job is to answer the user's question as accurately as possible, using the context below.
+
+    Context:
+    {context}
+
+    Given this information, please provide a comprehensive and relevant answer to the following question:
+    Question: {question}
+
+    If the context does not contain enough information, clearly state that the information is not available in the context provided.
+    If possible, provide a detailed explanation and summarize at the end ignoring the irrelevant information.
+    """
+
+    prompt = PromptTemplate(
+        input_variables=["context", "question"],
+        template=prompt_template
+    )
+
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=vector_store.as_retriever(),
+        chain_type_kwargs={"prompt": prompt}
+    )
+
+    return qa_chain
+
+
+def get_answer(question, qa_chain):
+    answer = qa_chain.run(question)
+    return answer
+
+
+if __name__ == "__main__":
+    index_path = "DatasetIndex_small2"
+
+    rag_system = create_rag_system(index_path)
+
+    while True:
+        user_question = input("Ask your question (or type 'exit' to quit): ")
+        if user_question.lower() == "exit":
+            print("Exiting the RAG system.")
+            break
+        answer = get_answer(user_question, rag_system)
+        print(f"Answer: {answer}")
